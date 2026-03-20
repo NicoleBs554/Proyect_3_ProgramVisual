@@ -11,15 +11,42 @@ interface ConnectionPool {
     void shutdown();
 }
 
-// Implementación con tamaño fijo (mínimo = máximo)
+@InfoClase(
+    nombre = "SimpleConnectionPool",
+    autor = "Tu Nombre",
+    descripcion = "Implementación de un pool de conexiones con tamaño fijo y expansión dinámica hasta un límite máximo.",
+    version = "1.0",
+    esSubclase = false
+)
 class SimpleConnectionPool implements ConnectionPool {
+    @InfoAtributo(tipo = "IAdapter", descripcion = "Adaptador para crear nuevas conexiones", modificadores = {"private", "final"})
     private final IAdapter adapter;
-    private final String host, database, user, password;
-    private final int port, maxSize;
+    @InfoAtributo(tipo = "String", descripcion = "Host de la base de datos", modificadores = {"private", "final"})
+    private final String host;
+    @InfoAtributo(tipo = "String", descripcion = "Nombre de la base de datos", modificadores = {"private", "final"})
+    private final String database;
+    @InfoAtributo(tipo = "String", descripcion = "Usuario de la base de datos", modificadores = {"private", "final"})
+    private final String user;
+    @InfoAtributo(tipo = "String", descripcion = "Contraseña de la base de datos", modificadores = {"private", "final"})
+    private final String password;
+    @InfoAtributo(tipo = "int", descripcion = "Puerto de la base de datos", modificadores = {"private", "final"})
+    private final int port;
+    @InfoAtributo(tipo = "int", descripcion = "Tamaño máximo del pool", modificadores = {"private", "final"})
+    private final int maxSize;
+    @InfoAtributo(tipo = "BlockingQueue<Connection>", descripcion = "Cola de conexiones inactivas", modificadores = {"private", "final"})
     private final BlockingQueue<Connection> idle = new LinkedBlockingQueue<>();
+    @InfoAtributo(tipo = "AtomicInteger", descripcion = "Número total de conexiones creadas", modificadores = {"private", "final"})
     private final AtomicInteger total = new AtomicInteger(0);
+    @InfoAtributo(tipo = "boolean", descripcion = "Indica si el pool está cerrado", modificadores = {"private", "volatile"})
     private volatile boolean closed = false;
 
+    @InfoMetodo(
+        parametros = {"IAdapter adapter", "String host", "int port", "String database", "String user", "String password", "int poolSize"},
+        tipoRetorno = "",
+        descripcion = "Constructor que inicializa el pool con un tamaño fijo.",
+        modificadores = {"public"},
+        esConstructor = true
+    )
     public SimpleConnectionPool(IAdapter adapter, String host, int port, String database,
                                 String user, String password, int poolSize) throws SQLException {
         this.adapter = adapter;
@@ -39,6 +66,12 @@ class SimpleConnectionPool implements ConnectionPool {
         return adapter.getConnection(host, port, database, user, password);
     }
 
+    @InfoMetodo(
+        parametros = {},
+        tipoRetorno = "Connection",
+        descripcion = "Obtiene una conexión del pool. Espera si no hay disponibles hasta alcanzar el límite máximo.",
+        modificadores = {"public"}
+    )
     @Override
     public Connection getConnection() throws InterruptedException, SQLException {
         if (closed) throw new IllegalStateException("Pool cerrado");
@@ -61,6 +94,12 @@ class SimpleConnectionPool implements ConnectionPool {
         }
     }
 
+    @InfoMetodo(
+        parametros = {"Connection connection"},
+        tipoRetorno = "void",
+        descripcion = "Devuelve una conexión al pool. Si la conexión está cerrada o no es válida, la descarta.",
+        modificadores = {"public"}
+    )
     @Override
     public void releaseConnection(Connection connection) {
         if (connection == null || closed) {
@@ -81,6 +120,12 @@ class SimpleConnectionPool implements ConnectionPool {
         idle.offer(connection);
     }
 
+    @InfoMetodo(
+        parametros = {},
+        tipoRetorno = "void",
+        descripcion = "Cierra todas las conexiones y deja el pool inoperante.",
+        modificadores = {"public"}
+    )
     @Override
     public void shutdown() {
         closed = true;
