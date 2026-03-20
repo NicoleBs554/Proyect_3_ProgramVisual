@@ -19,6 +19,7 @@ public class DbComponent<T extends IAdapter> {
     @InfoAtributo(tipo = "Map<String, String>", descripcion = "Mapa de consultas predefinidas", modificadores = {"private", "final"})
     private final Map<String, String> queries = new HashMap<>();
 
+    @SuppressWarnings("unchecked") // Se suprime la advertencia porque ya verificamos que la clase implementa IAdapter
     @InfoMetodo(
         parametros = {"String adapterClassName", "String host", "int port", "String database", "String user", "String password", "String queriesFilePath", "int poolSize"},
         tipoRetorno = "",
@@ -39,16 +40,16 @@ public class DbComponent<T extends IAdapter> {
     }
 
     private void loadQueries(String path) throws IOException {
-        Properties props = new Properties();
-        try (InputStream is = new FileInputStream(path)) {
-            props.load(is);
-        }
-        for (String key : props.stringPropertyNames()) {
-            queries.put(key, props.getProperty(key));
+        try (InputStream input = new FileInputStream(path)) {
+            Properties props = new Properties();
+            props.load(input);
+            for (String key : props.stringPropertyNames()) {
+                queries.put(key, props.getProperty(key));
+            }
         }
     }
 
-    @InfoMetodo(
+    @InfoMetodo( //columnas de mas crea resulset donde no es
         parametros = {"String name", "Object... params"},
         tipoRetorno = "List<Map<String, Object>>",
         descripcion = "Ejecuta una consulta predefinida por nombre (sin transacción). Obtiene una conexión del pool y la libera al finalizar.",

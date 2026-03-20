@@ -94,7 +94,7 @@ class SimpleConnectionPool implements ConnectionPool {
         }
     }
 
-    @InfoMetodo(
+    @InfoMetodo( //crea resulset donde no es
         parametros = {"Connection connection"},
         tipoRetorno = "void",
         descripcion = "Devuelve una conexión al pool. Si la conexión está cerrada o no es válida, la descarta.",

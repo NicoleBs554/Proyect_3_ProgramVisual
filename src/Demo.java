@@ -9,7 +9,7 @@ public class Demo {
             DbComponent<PostgresAdapter> pg = new DbComponent<>(
                 "PostgresAdapter",
                 "localhost", 5432, "testdb",
-                "postgres", "password",
+                "postgres", "nicole10",
                 "queries_postgres.properties", 5
             );
 
