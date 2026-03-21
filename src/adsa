@@ -36,7 +36,7 @@ public class DbComponent<T extends IAdapter> {
     )
     public DbComponent(String adapterClassName, String host, int port, String database,
                        String user, String password, String queriesFilePath, int poolSize) throws Exception {
-        // Cargar la clase y verificar que implementa IAdapter
+        // Reflexión: cargar la clase y verificar que implementa IAdapter
         Class<?> clazz = Class.forName(adapterClassName);
         if (!IAdapter.class.isAssignableFrom(clazz)) {
             throw new IllegalArgumentException("La clase " + adapterClassName + " no implementa IAdapter");

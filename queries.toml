@@ -1,0 +1,3 @@
+findAllUsers = "SELECT * FROM users"
+insertUser = "INSERT INTO users (name, age) VALUES (?, ?)"
+createTable = "CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, name VARCHAR(255), age INT)"

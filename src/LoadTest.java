@@ -8,7 +8,7 @@ public class LoadTest {
         DbComponent<PostgresAdapter> db = new DbComponent<>(
             "PostgresAdapter",
             "localhost", 5432, "testdb",
-            "postgres", "TU_CONTRASEÑA_REAL",    // ← Cambia por la contraseña correcta
+            "postgres", "Peroqueconio12",    // ← Cambia por la contraseña correcta
             "queries_postgres.properties", 10
         );
 
