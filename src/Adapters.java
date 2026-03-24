@@ -23,14 +23,3 @@ class H2Adapter implements IAdapter {
         return DriverManager.getConnection("jdbc:h2:./" + database, user, password);
     }
 }
-
-class MySQLAdapter implements IAdapter {
-    static {
-        try { Class.forName("com.mysql.cj.jdbc.Driver"); }
-        catch (ClassNotFoundException e) { throw new RuntimeException("MySQL JDBC Driver not found", e); }
-    }
-    @Override
-    public Connection getConnection(String host, int port, String database, String user, String password) throws SQLException {
-        return DriverManager.getConnection("jdbc:mysql://" + host + ":" + port + "/" + database + "?useSSL=false&serverTimezone=UTC", user, password);
-    }
-}

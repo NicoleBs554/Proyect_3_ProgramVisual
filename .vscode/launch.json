@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "name": "Run Demo (with lib)",
+      "request": "launch",
+      "mainClass": "Demo",
+      "cwd": "${workspaceFolder}",
+      "classPaths": [
+        "${workspaceFolder}/out",
+        "${workspaceFolder}/lib/*"
+      ]
+    }
+  ]
+}

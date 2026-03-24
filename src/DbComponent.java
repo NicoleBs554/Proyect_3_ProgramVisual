@@ -2,14 +2,9 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Method;
 import java.sql.*;
 import java.util.*;
-
-// Imports para los formatos adicionales
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.core.type.TypeReference;
-import org.yaml.snakeyaml.Yaml;
-import com.moandjiezana.toml.Toml;
 
 @InfoClase(
     nombre = "DbComponent",
@@ -51,7 +46,15 @@ public class DbComponent<T extends IAdapter> {
      * Soporta .properties, .json, .yaml/.yml y .toml.
      */
     private void loadQueries(String path) throws IOException {
-        String ext = path.substring(path.lastIndexOf('.') + 1).toLowerCase();
+        if (path == null || path.isBlank()) {
+            throw new IllegalArgumentException("Ruta de queries vacía");
+        }
+        int dot = path.lastIndexOf('.');
+        if (dot < 0 || dot == path.length() - 1) {
+            throw new IllegalArgumentException("Extensión inválida en archivo de queries: " + path);
+        }
+
+        String ext = path.substring(dot + 1).toLowerCase(Locale.ROOT);
         switch (ext) {
             case "properties":
                 loadProperties(path);
@@ -71,6 +74,25 @@ public class DbComponent<T extends IAdapter> {
         }
     }
 
+    private List<Map<String, Object>> readRows(ResultSet rs) throws SQLException {
+        List<Map<String, Object>> out = new ArrayList<>();
+        ResultSetMetaData meta = rs.getMetaData();
+        int cols = meta.getColumnCount();
+        while (rs.next()) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            for (int i = 1; i <= cols; i++) {
+                String label = meta.getColumnLabel(i);
+                Object value = rs.getObject(i);
+                row.put(label, value);
+                if (label != null) {
+                    row.put(label.toLowerCase(Locale.ROOT), value);
+                }
+            }
+            out.add(row);
+        }
+        return out;
+    }
+
     // Carga archivo .properties
     private void loadProperties(String path) throws IOException {
         try (InputStream input = new FileInputStream(path)) {
@@ -82,33 +104,60 @@ public class DbComponent<T extends IAdapter> {
         }
     }
 
-    // Carga archivo JSON usando Jackson
-    private void loadJson(String path) throws IOException {
-        ObjectMapper mapper = new ObjectMapper();
-        Map<String, String> map = mapper.readValue(new File(path), new TypeReference<Map<String, String>>() {});
-        queries.putAll(map);
-    }
-
-    // Carga archivo YAML usando SnakeYAML
+    // Carga JSON sin import estático
     @SuppressWarnings("unchecked")
-    private void loadYaml(String path) throws IOException {
-        Yaml yaml = new Yaml();
-        try (InputStream input = new FileInputStream(path)) {
-            Object obj = yaml.load(input);
-            if (obj instanceof Map) {
-                Map<String, Object> map = (Map<String, Object>) obj;
-                map.forEach((k, v) -> queries.put(k, v.toString()));
-            } else {
-                throw new IOException("El archivo YAML debe contener un mapa de claves a valores");
-            }
+    private void loadJson(String path) throws IOException {
+        try {
+            Class<?> mapperClass = Class.forName("com.fasterxml.jackson.databind.ObjectMapper");
+            Object mapper = mapperClass.getDeclaredConstructor().newInstance();
+            Method readValue = mapperClass.getMethod("readValue", File.class, Class.class);
+            Map<String, Object> map = (Map<String, Object>) readValue.invoke(mapper, new File(path), Map.class);
+            map.forEach((k, v) -> queries.put(String.valueOf(k), String.valueOf(v)));
+        } catch (ClassNotFoundException e) {
+            throw new IOException("Falta Jackson en classpath para leer JSON", e);
+        } catch (Exception e) {
+            throw new IOException("Error leyendo JSON: " + path, e);
         }
     }
 
-    // Carga archivo TOML usando Toml4j
+    // Carga YAML sin import estático
+    @SuppressWarnings("unchecked")
+    private void loadYaml(String path) throws IOException {
+        try (InputStream input = new FileInputStream(path)) {
+            Class<?> yamlClass = Class.forName("org.yaml.snakeyaml.Yaml");
+            Object yaml = yamlClass.getDeclaredConstructor().newInstance();
+            Method load = yamlClass.getMethod("load", InputStream.class);
+            Object obj = load.invoke(yaml, input);
+            if (!(obj instanceof Map)) {
+                throw new IOException("YAML debe contener un mapa clave->valor");
+            }
+            Map<String, Object> map = (Map<String, Object>) obj;
+            map.forEach((k, v) -> queries.put(String.valueOf(k), String.valueOf(v)));
+        } catch (ClassNotFoundException e) {
+            throw new IOException("Falta SnakeYAML en classpath para leer YAML", e);
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IOException("Error leyendo YAML: " + path, e);
+        }
+    }
+
+    // Carga TOML sin import estático
+    @SuppressWarnings("unchecked")
     private void loadToml(String path) throws IOException {
-        Toml toml = new Toml().read(new File(path));
-        Map<String, Object> map = toml.toMap();
-        map.forEach((k, v) -> queries.put(k, v.toString()));
+        try {
+            Class<?> tomlClass = Class.forName("com.moandjiezana.toml.Toml");
+            Object toml = tomlClass.getDeclaredConstructor().newInstance();
+            Method read = tomlClass.getMethod("read", File.class);
+            Object parsed = read.invoke(toml, new File(path));
+            Method toMap = tomlClass.getMethod("toMap");
+            Map<String, Object> map = (Map<String, Object>) toMap.invoke(parsed);
+            map.forEach((k, v) -> queries.put(String.valueOf(k), String.valueOf(v)));
+        } catch (ClassNotFoundException e) {
+            throw new IOException("Falta toml4j en classpath para leer TOML", e);
+        } catch (Exception e) {
+            throw new IOException("Error leyendo TOML: " + path, e);
+        }
     }
 
     @InfoMetodo(
@@ -124,41 +173,24 @@ public class DbComponent<T extends IAdapter> {
         if (sql == null) throw new IllegalArgumentException("Consulta no encontrada: " + name);
 
         Connection conn = null;
-        PreparedStatement stmt = null;
-        ResultSet rs = null;
         try {
             conn = pool.getConnection();
-            stmt = conn.prepareStatement(sql);
-            for (int i = 0; i < params.length; i++) {
-                stmt.setObject(i + 1, params[i]);
-            }
-
-            // Determinar si es una sentencia SELECT (ignorando espacios en blanco al inicio)
-            String trimmedSql = sql.trim().toLowerCase();
-            if (trimmedSql.startsWith("select")) {
-                rs = stmt.executeQuery();
-                List<Map<String, Object>> results = new ArrayList<>();
-                ResultSetMetaData meta = rs.getMetaData();
-                int columnCount = meta.getColumnCount();
-                while (rs.next()) {
-                    Map<String, Object> row = new HashMap<>();
-                    for (int i = 1; i <= columnCount; i++) {
-                        row.put(meta.getColumnLabel(i), rs.getObject(i));
-                    }
-                    results.add(row);
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                for (int i = 0; i < params.length; i++) {
+                    stmt.setObject(i + 1, params[i]);
                 }
-                return results;
-            } else {
-                // Para INSERT, UPDATE, DELETE, CREATE TABLE, etc.
-                stmt.executeUpdate();
+                boolean hasResult = stmt.execute();
+                if (hasResult) {
+                    try (ResultSet rs = stmt.getResultSet()) {
+                        return readRows(rs);
+                    }
+                }
                 return Collections.emptyList();
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new SQLException("Interrupción mientras se esperaba una conexión", e);
+            throw new SQLException("Interrupción esperando conexión", e);
         } finally {
-            if (rs != null) try { rs.close(); } catch (SQLException ignored) {}
-            if (stmt != null) try { stmt.close(); } catch (SQLException ignored) {}
             if (conn != null) pool.releaseConnection(conn);
         }
     }
@@ -177,9 +209,14 @@ public class DbComponent<T extends IAdapter> {
             conn = pool.getConnection();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new SQLException("Interrupción mientras se esperaba una conexión", e);
+            throw new SQLException("Interrupción esperando conexión", e);
         }
-        conn.setAutoCommit(false);
+        try {
+            conn.setAutoCommit(false);
+        } catch (SQLException e) {
+            pool.releaseConnection(conn);
+            throw e;
+        }
         return new Transaction(conn, pool, queries);
     }
 
@@ -212,6 +249,8 @@ public class DbComponent<T extends IAdapter> {
         @InfoAtributo(tipo = "boolean", descripcion = "Indica si la transacción ya fue cerrada", modificadores = {"private"})
         private boolean closed = false;
 
+        private boolean completed = false;
+
         private Transaction(Connection conn, ConnectionPool pool, Map<String, String> queries) {
             this.conn = conn;
             this.pool = pool;
@@ -234,25 +273,13 @@ public class DbComponent<T extends IAdapter> {
                 for (int i = 0; i < params.length; i++) {
                     stmt.setObject(i + 1, params[i]);
                 }
-                String trimmedSql = sql.trim().toLowerCase();
-                if (trimmedSql.startsWith("select")) {
-                    try (ResultSet rs = stmt.executeQuery()) {
-                        List<Map<String, Object>> results = new ArrayList<>();
-                        ResultSetMetaData meta = rs.getMetaData();
-                        int columnCount = meta.getColumnCount();
-                        while (rs.next()) {
-                            Map<String, Object> row = new HashMap<>();
-                            for (int i = 1; i <= columnCount; i++) {
-                                row.put(meta.getColumnLabel(i), rs.getObject(i));
-                            }
-                            results.add(row);
-                        }
-                        return results;
+                boolean hasResult = stmt.execute();
+                if (hasResult) {
+                    try (ResultSet rs = stmt.getResultSet()) {
+                        return readRows(rs);
                     }
-                } else {
-                    stmt.executeUpdate();
-                    return Collections.emptyList();
                 }
+                return Collections.emptyList();
             }
         }
 
@@ -268,6 +295,7 @@ public class DbComponent<T extends IAdapter> {
             if (closed) throw new SQLException("Transacción ya cerrada");
             try {
                 conn.commit();
+                completed = true;
             } finally {
                 close();
             }
@@ -285,6 +313,7 @@ public class DbComponent<T extends IAdapter> {
             if (closed) throw new SQLException("Transacción ya cerrada");
             try {
                 conn.rollback();
+                completed = true;
             } finally {
                 close();
             }
@@ -292,13 +321,14 @@ public class DbComponent<T extends IAdapter> {
 
         @Override
         public void close() {
-            if (!closed) {
-                closed = true;
-                try {
-                    if (!conn.getAutoCommit()) {
-                        conn.rollback(); // rollback implícito si no se hizo commit
-                    }
-                } catch (SQLException ignored) {}
+            if (closed) return;
+            closed = true;
+            try {
+                if (!completed) {
+                    try { conn.rollback(); } catch (SQLException ignored) {}
+                }
+                try { conn.setAutoCommit(true); } catch (SQLException ignored) {}
+            } finally {
                 pool.releaseConnection(conn);
             }
         }

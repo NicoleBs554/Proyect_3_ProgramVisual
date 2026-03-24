@@ -1,16 +1,20 @@
+import java.io.File;
 import java.util.List;
 import java.util.Map;
 
 public class Demo {
     public static void main(String[] args) {
+        String queriesPath = findQueriesPath();
+
+        // ========== PostgreSQL ==========
+        System.out.println("=== PostgreSQL ===");
+        DbComponent<PostgresAdapter> pg = null;
         try {
-            // ========== PostgreSQL ==========
-            System.out.println("=== PostgreSQL ===");
-            DbComponent<PostgresAdapter> pg = new DbComponent<>(
+            pg = new DbComponent<>(
                 "PostgresAdapter",
                 "localhost", 5432, "testdb",
-                "postgres", "nicole10",
-                "queries_postgres.properties", 5
+                "postgres", "Peroqueconio12",
+                queriesPath, 5
             );
 
             pg.query("createTable");
@@ -19,45 +23,51 @@ public class Demo {
 
             List<Map<String, Object>> usersPg = pg.query("findAllUsers");
             usersPg.forEach(row -> System.out.println(row.get("name") + " (" + row.get("age") + ")"));
+        } catch (Exception e) {
+            System.err.println("PostgreSQL falló: " + e.getMessage());
+        } finally {
+            if (pg != null) pg.shutdown();
+        }
 
-            pg.shutdown();
-
-            // ========== H2 ==========
-            System.out.println("\n=== H2 ===");
-            DbComponent<H2Adapter> h2 = new DbComponent<>(
+        // ========== H2 ==========
+        System.out.println("\n=== H2 ===");
+        DbComponent<H2Adapter> h2 = null;
+        try {
+            h2 = new DbComponent<>(
                 "H2Adapter",
                 "", 0, "testdb", "sa", "",
-                "queries_h2.properties", 3
+                queriesPath, 3
             );
 
             h2.query("createTable");
             h2.query("insertUser", "Carlos", 28);
             List<Map<String, Object>> usersH2 = h2.query("findAllUsers");
             usersH2.stream().map(row -> row.get("name") + " (" + row.get("age") + ")").forEach(System.out::println);
-            h2.shutdown();
+        } catch (Exception e) {
+            System.err.println("H2 falló: " + e.getMessage());
+        } finally {
+            if (h2 != null) h2.shutdown();
+        }
 
-            // ========== MySQL ==========
-            System.out.println("\n=== MySQL ===");
-            DbComponent<MySQLAdapter> mysql = new DbComponent<>(
-                "MySQLAdapter",
-                "localhost", 3306, "testdb",
-                "root", "root",
-                "queries_mysql.properties", 4
-            );
-
-            mysql.query("createTable");
-            mysql.query("insertUser", "Luis", 32);
-            List<Map<String, Object>> usersMysql = mysql.query("findAllUsers");
-            usersMysql.stream().map(row -> row.get("name") + " (" + row.get("age") + ")").forEach(System.out::println);
-            mysql.shutdown();
-
-            // Generar documentación
+        // Generar documentación
+        try {
             Generator.generarMarkdownParaClase(DbComponent.class, "DbComponent.md");
             Generator.generarMarkdownParaClase(SimpleConnectionPool.class, "SimpleConnectionPool.md");
             System.out.println("\nDocumentación generada en archivos .md");
-
         } catch (Exception e) {
-            e.printStackTrace();
+            System.err.println("No se pudo generar documentación: " + e.getMessage());
         }
+    }
+
+    private static String findQueriesPath() {
+        String[] candidates = {
+            "queries.properties",
+            "src/queries.properties",
+            "P3V/Proyect_3_ProgramVisual/queries.properties"
+        };
+        for (String candidate : candidates) {
+            if (new File(candidate).exists()) return candidate;
+        }
+        return "queries.properties";
     }
 }

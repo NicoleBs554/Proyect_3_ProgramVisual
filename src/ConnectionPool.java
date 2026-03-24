@@ -102,8 +102,9 @@ class SimpleConnectionPool implements ConnectionPool {
     )
     @Override
     public void releaseConnection(Connection connection) {
-        if (connection == null || closed) {
-            try { if (connection != null) connection.close(); } catch (SQLException ignored) {}
+        if (connection == null) return;
+        if (closed) {
+            try { connection.close(); } catch (SQLException ignored) {}
             return;
         }
         try {
@@ -112,12 +113,20 @@ class SimpleConnectionPool implements ConnectionPool {
                 connection.close();
                 return;
             }
+            try {
+                if (!connection.getAutoCommit()) {
+                    connection.setAutoCommit(true);
+                }
+            } catch (SQLException ignored) {}
+            idle.put(connection);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            try { connection.close(); } catch (SQLException ignored) {}
+            total.decrementAndGet();
         } catch (SQLException e) {
             total.decrementAndGet();
             try { connection.close(); } catch (SQLException ignored) {}
-            return;
         }
-        idle.offer(connection);
     }
 
     @InfoMetodo(
