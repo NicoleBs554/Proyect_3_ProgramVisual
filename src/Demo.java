@@ -11,17 +11,19 @@ public class Demo {
         DbComponent<PostgresAdapter> pg = null;
         try {
             pg = new DbComponent<>(
-                "PostgresAdapter",
-                "localhost", 5432, "testdb",
-                "postgres", "Peroqueconio12",
-                queriesPath, 5
+                new PostgresAdapter(),
+                new DbConfig("localhost", 5432, "testdb", "postgres", "Peroqueconio12"),
+                queriesPath,
+                5
             );
 
-            pg.query("createTable");
-            pg.query("insertUser", "Juan", 30);
-            pg.query("insertUser", "Ana", 25);
-
-            List<Map<String, Object>> usersPg = pg.query("findAllUsers");
+            List<Map<String, Object>> usersPg = pg.withTransaction(tx -> {
+                tx.query("createTable");
+                tx.query("clearUsers");
+                tx.query("insertUser", "Juan", 30);
+                tx.query("insertUser", "Ana", 25);
+                return tx.query("findAllUsers");
+            });
             usersPg.forEach(row -> System.out.println(row.get("name") + " (" + row.get("age") + ")"));
         } catch (Exception e) {
             System.err.println("PostgreSQL falló: " + e.getMessage());
@@ -34,14 +36,18 @@ public class Demo {
         DbComponent<H2Adapter> h2 = null;
         try {
             h2 = new DbComponent<>(
-                "H2Adapter",
-                "", 0, "testdb", "sa", "",
-                queriesPath, 3
+                new H2Adapter(),
+                new DbConfig("", 0, "testdb", "sa", ""),
+                queriesPath,
+                3
             );
 
-            h2.query("createTable");
-            h2.query("insertUser", "Carlos", 28);
-            List<Map<String, Object>> usersH2 = h2.query("findAllUsers");
+            List<Map<String, Object>> usersH2 = h2.withTransaction(tx -> {
+                tx.query("createTable");
+                tx.query("clearUsers");
+                tx.query("insertUser", "Carlos", 28);
+                return tx.query("findAllUsers");
+            });
             usersH2.stream().map(row -> row.get("name") + " (" + row.get("age") + ")").forEach(System.out::println);
         } catch (Exception e) {
             System.err.println("H2 falló: " + e.getMessage());

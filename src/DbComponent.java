@@ -21,6 +21,16 @@ public class DbComponent<T extends IAdapter> {
     @InfoAtributo(tipo = "Map<String, String>", descripcion = "Mapa de consultas predefinidas", modificadores = {"private", "final"})
     private final Map<String, String> queries = new HashMap<>();
 
+    @FunctionalInterface
+    public interface TransactionWork<R> {
+        R run(Transaction tx) throws Exception;
+    }
+
+    @FunctionalInterface
+    public interface TransactionVoidWork {
+        void run(Transaction tx) throws Exception;
+    }
+
     @SuppressWarnings("unchecked")
     @InfoMetodo(
         parametros = {"String adapterClassName", "String host", "int port", "String database", "String user", "String password", "String queriesFilePath", "int poolSize"},
@@ -31,14 +41,34 @@ public class DbComponent<T extends IAdapter> {
     )
     public DbComponent(String adapterClassName, String host, int port, String database,
                        String user, String password, String queriesFilePath, int poolSize) throws Exception {
-        // Cargar la clase y verificar que implementa IAdapter
+        this(instantiateAdapter(adapterClassName), new DbConfig(host, port, database, user, password), queriesFilePath, poolSize);
+    }
+
+    @InfoMetodo(
+        parametros = {"T adapter", "DbConfig config", "String queriesFilePath", "int poolSize"},
+        tipoRetorno = "",
+        descripcion = "Constructor desacoplado: recibe el adaptador ya instanciado y un objeto DbConfig (sin reflexión).",
+        modificadores = {"public"},
+        esConstructor = true
+    )
+    public DbComponent(T adapter, DbConfig config, String queriesFilePath, int poolSize) throws Exception {
+        if (adapter == null) throw new IllegalArgumentException("adapter no puede ser null");
+        if (config == null) throw new IllegalArgumentException("config no puede ser null");
+        this.adapter = adapter;
+        this.pool = new SimpleConnectionPool(adapter, config, poolSize);
+        loadQueries(queriesFilePath);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T extends IAdapter> T instantiateAdapter(String adapterClassName) throws Exception {
+        if (adapterClassName == null || adapterClassName.isBlank()) {
+            throw new IllegalArgumentException("adapterClassName vacío");
+        }
         Class<?> clazz = Class.forName(adapterClassName);
         if (!IAdapter.class.isAssignableFrom(clazz)) {
             throw new IllegalArgumentException("La clase " + adapterClassName + " no implementa IAdapter");
         }
-        this.adapter = (T) clazz.getDeclaredConstructor().newInstance();
-        this.pool = new SimpleConnectionPool(adapter, host, port, database, user, password, poolSize);
-        loadQueries(queriesFilePath);
+        return (T) clazz.getDeclaredConstructor().newInstance();
     }
 
     /**
@@ -74,7 +104,7 @@ public class DbComponent<T extends IAdapter> {
         }
     }
 
-    private List<Map<String, Object>> readRows(ResultSet rs) throws SQLException {
+    private static List<Map<String, Object>> readRows(ResultSet rs) throws SQLException {
         List<Map<String, Object>> out = new ArrayList<>();
         ResultSetMetaData meta = rs.getMetaData();
         int cols = meta.getColumnCount();
@@ -221,6 +251,45 @@ public class DbComponent<T extends IAdapter> {
     }
 
     @InfoMetodo(
+        parametros = {"TransactionWork<R> work"},
+        tipoRetorno = "R",
+        descripcion = "Ejecuta trabajo dentro de una transacción (commit automático; rollback ante error).",
+        modificadores = {"public"}
+    )
+    public <R> R withTransaction(TransactionWork<R> work) throws SQLException {
+        if (work == null) throw new IllegalArgumentException("work no puede ser null");
+        try (Transaction tx = transaction()) {
+            try {
+                R result = work.run(tx);
+                tx.commit();
+                return result;
+            } catch (Exception e) {
+                try {
+                    tx.rollback();
+                } catch (SQLException rollbackError) {
+                    e.addSuppressed(rollbackError);
+                }
+                if (e instanceof SQLException) throw (SQLException) e;
+                if (e instanceof RuntimeException) throw (RuntimeException) e;
+                throw new SQLException("Error dentro de transacción", e);
+            }
+        }
+    }
+
+    @InfoMetodo(
+        parametros = {"TransactionVoidWork work"},
+        tipoRetorno = "void",
+        descripcion = "Versión void de withTransaction (commit automático; rollback ante error).",
+        modificadores = {"public"}
+    )
+    public void withTransaction(TransactionVoidWork work) throws SQLException {
+        withTransaction(tx -> {
+            work.run(tx);
+            return null;
+        });
+    }
+
+    @InfoMetodo(
         parametros = {},
         tipoRetorno = "void",
         descripcion = "Cierra el pool y libera todos los recursos.",
@@ -239,7 +308,7 @@ public class DbComponent<T extends IAdapter> {
         version = "1.0",
         esSubclase = true
     )
-    public class Transaction implements AutoCloseable {
+    public static class Transaction implements AutoCloseable {
         @InfoAtributo(tipo = "Connection", descripcion = "Conexión reservada para la transacción", modificadores = {"private", "final"})
         private final Connection conn;
         @InfoAtributo(tipo = "ConnectionPool", descripcion = "Pool al que pertenece la conexión", modificadores = {"private", "final"})

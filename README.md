@@ -39,3 +39,7 @@ Crea tus archivos de propiedades (ej. `queries_mysql.properties`):
 ```properties
 findAllUsers = SELECT * FROM users
 insertUser = INSERT INTO users (name, age) VALUES (?, ?)
+
+javac -cp "lib/*" -d out (Get-ChildItem -Path src -Filter *.java | ForEach-Object FullName)
+
+java -cp "out;lib/*" Demo

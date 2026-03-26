@@ -62,6 +62,31 @@ class SimpleConnectionPool implements ConnectionPool {
         }
     }
 
+    @InfoMetodo(
+        parametros = {"IAdapter adapter", "DbConfig config", "int poolSize"},
+        tipoRetorno = "",
+        descripcion = "Constructor desacoplado: usa DbConfig en vez de múltiples parámetros.",
+        modificadores = {"public"},
+        esConstructor = true
+    )
+    public SimpleConnectionPool(IAdapter adapter, DbConfig config, int poolSize) throws SQLException {
+        if (adapter == null) throw new IllegalArgumentException("adapter no puede ser null");
+        if (config == null) throw new IllegalArgumentException("config no puede ser null");
+
+        this.adapter = adapter;
+        this.host = config.getHost();
+        this.port = config.getPort();
+        this.database = config.getDatabase();
+        this.user = config.getUser();
+        this.password = config.getPassword();
+        this.maxSize = poolSize;
+
+        for (int i = 0; i < poolSize; i++) {
+            idle.offer(createConnection());
+            total.incrementAndGet();
+        }
+    }
+
     private Connection createConnection() throws SQLException {
         return adapter.getConnection(host, port, database, user, password);
     }
@@ -75,13 +100,21 @@ class SimpleConnectionPool implements ConnectionPool {
     @Override
     public Connection getConnection() throws InterruptedException, SQLException {
         if (closed) throw new IllegalStateException("Pool cerrado");
-        Connection conn = idle.poll();
-        if (conn != null) return conn;
+        while (true) {
+            Connection conn = idle.poll();
+            if (conn == null) break;
+            if (isUsable(conn)) return conn;
+            discard(conn);
+        }
 
         while (true) {
             int current = total.get();
             if (current >= maxSize) {
-                return idle.take();
+                while (true) {
+                    Connection conn = idle.take();
+                    if (isUsable(conn)) return conn;
+                    discard(conn);
+                }
             }
             if (total.compareAndSet(current, current + 1)) {
                 try {
@@ -91,6 +124,23 @@ class SimpleConnectionPool implements ConnectionPool {
                     throw e;
                 }
             }
+        }
+    }
+
+    private boolean isUsable(Connection connection) {
+        try {
+            return connection != null && !connection.isClosed() && connection.isValid(2);
+        } catch (SQLException e) {
+            return false;
+        }
+    }
+
+    private void discard(Connection connection) {
+        if (connection == null) return;
+        total.decrementAndGet();
+        try {
+            connection.close();
+        } catch (SQLException ignored) {
         }
     }
 
@@ -115,6 +165,7 @@ class SimpleConnectionPool implements ConnectionPool {
             }
             try {
                 if (!connection.getAutoCommit()) {
+                    try { connection.rollback(); } catch (SQLException ignored) {}
                     connection.setAutoCommit(true);
                 }
             } catch (SQLException ignored) {}
